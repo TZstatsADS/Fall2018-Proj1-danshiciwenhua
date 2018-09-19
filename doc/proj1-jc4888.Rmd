@@ -171,11 +171,12 @@ First, let us see what is the main reason to make people happy among 100,000 mom
      wordcloud2(size = 0.6,
                 rotateRatio = 0)
 ```
-We can see there are a few words appearing frequently in happy moments: "friend", "family", "time", "home", "dinner", "job", "dog", and so on. No surprisingly, family, friends and jobs are what we treasure most and hence they are the source of our happiness.
+We can see there are a few words appearing frequently in happy moments: "friend", "family", "time", "home", "dinner", "job", "dog", and so on. Not surprisingly, family, friends and jobs are what we treasure most and hence they are the source of our happiness.
 
 However, do different groups display same keywords? Let us move to next stage.
 
 Firstly, let us see the distribution of different groups.
+
 **gender**
 
 ```{r, warning=FALSE, message=FALSE}
@@ -189,7 +190,9 @@ ggplot(data = gender, aes(x=gender, y=freq, fill=gender)) +
     guides(fill=FALSE)+
     coord_flip()
 ```
+
 **marital status**
+
 ```{r, warning=FALSE, message=FALSE}
   marry <- hm_data %>%
   group_by(marital) %>%
@@ -201,7 +204,9 @@ ggplot(data = marry, aes(x=marital, y=freq, fill=marital)) +
     guides(fill=FALSE)+
     coord_flip()
 ```
+
 **country**
+
 ```{r, warning=FALSE, message=FALSE}
   country <- hm_data %>%
   mutate(country1 = case_when(country == "USA" ~ "USA",
@@ -220,6 +225,7 @@ ggplot(data = country, aes(x=country1, y=freq, fill=country1)) +
 ```
 
 **age**
+
 ```{r, warning=FALSE, message=FALSE}
   age_df <- hm_data %>%
   filter(!age %in% 'prefer not to say')
@@ -242,6 +248,7 @@ ggplot(data = age_df, aes(x=age1, y=freq, fill=age1)) +
     guides(fill=FALSE)+
     coord_flip()
 ```
+
 From the demographic distribution plot, we can see gender and marital status are generally equally distributed while country and age are highly imbanlanced.
 
 We want to know if there are differences between male vs female, single VS married, USA VS India, young VS old in terms of their happy moments.
@@ -269,6 +276,7 @@ p2 <- ggplot(data = genderdiff[genderdiff$gender == 'f',], aes(x=word, y=n, fill
 grid.arrange(p1, p2, ncol = 2)
 
 ```
+
 From this plot, we see that for both male and female, they value friend and family most. However, there are still some differences in what contribute to their happiness. There is a large proportion of happy moments are from games for male while female people have many good memories related to birthday.
 
 **single vs married**
@@ -294,9 +302,11 @@ p2 <- ggplot(data = mardiff[mardiff$marital == 'married',], aes(x=word, y=n, fil
 grid.arrange(p1, p2, ncol = 2)
 
 ```
+
 Same as male VS female group, both single and married group have a good time with their friends. We still find some interesting things. Since married people are not alone, their happiness are also largely from their wife, husband, son and daughter while for single people they have fun with games or other events.
 
 **USA vs India**
+
 Since data from country group are highly imbanlanced, we also compare America and India which they are of same magnitude.
 
 ```{r, warning=FALSE, message=FALSE}
@@ -321,6 +331,7 @@ p2 <- ggplot(data = condiff[condiff$country == 'IND',], aes(x=word, y=proportion
 grid.arrange(p1, p2, ncol = 2)
 
 ```
+
 Not surprisingly, friends bring these two groups of people lots of happiness. But we still see some core value differences in these two countries. Happiness from son and daughter for American people are equally weighted while it is not for Indian people.
 
 **young vs old**
@@ -351,6 +362,7 @@ p2 <- ggplot(data = agediff[agediff$age1 == 'o',], aes(x=word, y=proportion, fil
 grid.arrange(p1, p2, ncol = 2)
 
 ```
+
 Probably due to the reason that old people are not alone, their happiness are largely from their wife, husband, son and daughter while for young people are from games or other events.
 
 ## Part 3: Sentiment Analysis
@@ -364,6 +376,7 @@ Although all 100,000 happiness moments have positive attitudes, there may be som
 ```
 
 **male vs female**
+
 ```{r, warning=FALSE, message=FALSE}
  p1<-ggplot(data=sent_df[sent_df$gender=='m',], aes(y=sent_df[sent_df$gender=='m',]$sentiment)) + 
   geom_boxplot(col="red", 
@@ -380,9 +393,11 @@ p2<-ggplot(data=sent_df[sent_df$gender=='f',], aes(y=sent_df[sent_df$gender=='f'
   labs(x="female", y="score")
 grid.arrange(p1, p2, ncol = 2)
 ```
+
 Overall, the experiences are definitely positive. But we still have negative sentiments, which may arise from tragedy. Meanwhile, female have slightly higher sentiment scores than men for most of their experiences.
 
 **young vs old**
+
 ```{r, warning=FALSE, message=FALSE}
  p1<-ggplot(data=sent_df[sent_df$marital=='single',], aes(y=sent_df[sent_df$marital=='single',]$sentiment)) + 
   geom_boxplot(col="red", 
@@ -397,4 +412,5 @@ p2<-ggplot(data=sent_df[sent_df$marital=='married',], aes(y=sent_df[sent_df$mari
   labs(x="married", y="score")
 grid.arrange(p1, p2, ncol = 2)
 ```
+
 We still see negative sentiments and young people have slightly higher sentiment scores than old people for most of their experiences.
