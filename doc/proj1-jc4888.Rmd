@@ -1,0 +1,400 @@
+---
+title: 'Happy Moments'
+output:
+  html_document: default
+  html_notebook: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+#**What made you happy today?**
+
+HappyDB is a corpus of 100,000 crowd-sourced happy moments via Amazon's Mechanical Turk. You can read more about it on https://arxiv.org/abs/1801.07746
+
+In this project, we apply text mining and natural language processing techniques to explore what drives us happy from various aspects.
+
+
+```{r load libraries, warning=FALSE, message=FALSE}
+library(tm)
+library(tidytext)
+library(tidyverse)
+library(DT)
+library(scales)
+library(wordcloud2)
+library(gridExtra)
+library(ngram)
+library(topicmodels)
+library(syuzhet)
+```
+
+## Part 1: Text Processing
+In this part, we perform text processing by cleanning text, stemming words and creating tidy object.
+
+```{r read data, warning=FALSE, message=FALSE}
+# Load the data to be cleaned and processed
+urlfile<-'https://raw.githubusercontent.com/rit-public/HappyDB/master/happydb/data/cleaned_hm.csv'
+hm_data <- read_csv(urlfile)
+```
+
+
+```{r text processing in tm}
+# Preliminary cleaning of text
+corpus <- VCorpus(VectorSource(hm_data$cleaned_hm))%>%
+  tm_map(content_transformer(tolower))%>%
+  tm_map(removePunctuation)%>%
+  tm_map(removeNumbers)%>%
+  tm_map(removeWords, character(0))%>%
+  tm_map(stripWhitespace)
+```
+
+```{r stemming}
+# Stemming words and converting tm object to tidy object
+stemmed <- tm_map(corpus, stemDocument) %>%
+  tidy() %>%
+  select(text)
+```
+
+```{r tidy dictionary}
+# Creating tidy format of the dictionary to be used for completing stems
+dict <- tidy(corpus) %>%
+  select(text) %>%
+  unnest_tokens(dictionary, text)
+```
+
+
+```{r stopwords}
+# Removing stopwords that don't hold any significant information for our data set
+data("stop_words")
+
+word <- c("happy","ago","yesterday","lot","today","months","month",
+                 "happier","happiest","last","week","past")
+
+stop_words <- stop_words %>%
+  bind_rows(mutate(tibble(word), lexicon = "updated"))
+```
+
+
+```{r tidy stems with dictionary}
+# Combining stems and dictionary into the same tibble
+completed <- stemmed %>%
+  mutate(id = row_number()) %>%
+  unnest_tokens(stems, text) %>%
+  bind_cols(dict) %>%
+  anti_join(stop_words, by = c("dictionary" = "word"))
+```
+
+
+```{r stem completion, warning=FALSE, message=FALSE}
+# Stem completion
+completed <- completed %>%
+  group_by(stems) %>%
+  count(dictionary) %>%
+  mutate(word = dictionary[which.max(n)]) %>%
+  ungroup() %>%
+  select(stems, word) %>%
+  distinct() %>%
+  right_join(completed) %>%
+  select(-stems)
+```
+
+
+
+```{r reverse unnest}
+# Pasting stem completed individual words into their respective happy moments
+completed <- completed %>%
+  group_by(id) %>%
+  summarise(text = str_c(word, collapse = " ")) %>%
+  ungroup()
+```
+
+
+```{r cleaned hm_data, warning=FALSE, message=FALSE}
+# Keeping a track of the happy moments with their own ID
+hm_data <- hm_data %>%
+  mutate(id = row_number()) %>%
+  inner_join(completed)
+
+```
+
+
+
+```{r export data}
+### Exporting the processed text data into a CSV file
+write_csv(hm_data, "../output/processed_moments.csv")
+```
+
+```{r combining data, warning=FALSE, message=FALSE}
+### Combine hm data with demographic file
+urlfile<-'https://raw.githubusercontent.com/rit-public/HappyDB/master/happydb/data/demographic.csv'
+
+demo_data <- read_csv(urlfile)
+hm_data <- hm_data %>%
+  inner_join(demo_data, by = "wid") %>%
+  select(wid,
+         original_hm,
+         gender, 
+         marital, 
+         parenthood,
+         reflection_period,
+         age, 
+         country, 
+         ground_truth_category, 
+         text) %>%
+  mutate(count = sapply(hm_data$text, wordcount)) %>%
+  filter(gender %in% c("m", "f")) %>%
+  filter(marital %in% c("single", "married")) %>%
+  filter(parenthood %in% c("n", "y")) %>%
+  filter(reflection_period %in% c("24h", "3m")) %>%
+  mutate(reflection_period = fct_recode(reflection_period, 
+                                        months_3 = "3m", hours_24 = "24h"))
+datatable(hm_data)
+```
+
+```{r bag of words, warning=FALSE, message=FALSE}
+# Create a bag of words using the text data
+bag_of_words <-  hm_data %>%
+  unnest_tokens(word, text)
+
+word_count <- bag_of_words %>%
+  count(word, sort = TRUE)
+```
+
+## Part 2: Elementary Analysis
+Which is the most frequent topic people mention in their happy moments? Is there any significant difference among group across region, age, gender and marital status? In this part, we will dig deeper into the datasets.
+
+First, let us see what is the main reason to make people happy among 100,000 moments.
+```{r, warning=FALSE, message=FALSE}
+ word_count %>%
+     slice(1:100) %>%
+     wordcloud2(size = 0.6,
+                rotateRatio = 0)
+```
+We can see there are a few words appearing frequently in happy moments: "friend", "family", "time", "home", "dinner", "job", "dog", and so on. No surprisingly, family, friends and jobs are what we treasure most and hence they are the source of our happiness.
+
+However, do different groups display same keywords? Let us move to next stage.
+
+Firstly, let us see the distribution of different groups.
+**gender**
+
+```{r, warning=FALSE, message=FALSE}
+  gender <- hm_data %>%
+  group_by(gender) %>%
+  summarise (n = n()) %>%
+  mutate(freq = n / sum(n))
+
+ggplot(data = gender, aes(x=gender, y=freq, fill=gender)) +
+    geom_bar(colour="black", stat="identity") +
+    guides(fill=FALSE)+
+    coord_flip()
+```
+**marital status**
+```{r, warning=FALSE, message=FALSE}
+  marry <- hm_data %>%
+  group_by(marital) %>%
+  summarise (n = n()) %>%
+  mutate(freq = n / sum(n))
+
+ggplot(data = marry, aes(x=marital, y=freq, fill=marital)) +
+    geom_bar(colour="black", stat="identity") +
+    guides(fill=FALSE)+
+    coord_flip()
+```
+**country**
+```{r, warning=FALSE, message=FALSE}
+  country <- hm_data %>%
+  mutate(country1 = case_when(country == "USA" ~ "USA",
+                              country == "IND" ~ "IND",
+                              country == "VEN" ~ "VEN",
+                              country == "CAN" ~ "CAN",
+                              TRUE ~ 'other'))%>%
+                                group_by(country1) %>%
+                                summarise (n = n()) %>%
+                                mutate(freq = n / sum(n))
+
+ggplot(data = country, aes(x=country1, y=freq, fill=country1)) +
+    geom_bar(colour="black", stat="identity") +
+    guides(fill=FALSE)+
+    coord_flip()
+```
+
+**age**
+```{r, warning=FALSE, message=FALSE}
+  age_df <- hm_data %>%
+  filter(!age %in% 'prefer not to say')
+
+  age_df <- age_df %>%
+  mutate(age = as.integer(as.character(age)))
+  age_df <- age_df %>%
+  mutate(age1 = case_when(age < 20 ~ "20-",
+                              age>=20 & age<30 ~ "20-30",
+                              age>=30 & age<40 ~ "30-40",
+                              age>=40 & age<50 ~ "40-50",
+                              age>=50 & age<60 ~ "50-60",
+                              age>=60 ~ "60+"))%>%
+                                group_by(age1) %>%
+                                summarise (n = n()) %>%
+                                mutate(freq = n / sum(n))
+
+ggplot(data = age_df, aes(x=age1, y=freq, fill=age1)) +
+    geom_bar(colour="black", stat="identity") +
+    guides(fill=FALSE)+
+    coord_flip()
+```
+From the demographic distribution plot, we can see gender and marital status are generally equally distributed while country and age are highly imbanlanced.
+
+We want to know if there are differences between male vs female, single VS married, USA VS India, young VS old in terms of their happy moments.
+
+**male vs female**
+
+```{r, warning=FALSE, message=FALSE}
+genderdiff <-  hm_data %>%
+  unnest_tokens(word, text)%>%
+  group_by(gender) %>%
+  count(word, sort = TRUE) %>%
+  slice(1:20)
+
+p1 <- ggplot(data = genderdiff[genderdiff$gender == 'm',], aes(x=word, y=n, fill=word))+
+    geom_bar(colour="black", stat="identity") +
+    guides(fill=FALSE)+
+    coord_flip()+
+    ggtitle("Male")
+
+p2 <- ggplot(data = genderdiff[genderdiff$gender == 'f',], aes(x=word, y=n, fill=word)) +
+    geom_bar(colour="black", stat="identity") +
+    guides(fill=FALSE)+
+    coord_flip()+
+  ggtitle("Female")
+grid.arrange(p1, p2, ncol = 2)
+
+```
+From this plot, we see that for both male and female, they value friend and family most. However, there are still some differences in what contribute to their happiness. There is a large proportion of happy moments are from games for male while female people have many good memories related to birthday.
+
+**single vs married**
+
+```{r, warning=FALSE, message=FALSE}
+mardiff <-  hm_data %>%
+  unnest_tokens(word, text)%>%
+  group_by(marital) %>%
+  count(word, sort = TRUE) %>%
+  slice(1:20)
+
+p1 <- ggplot(data = mardiff[mardiff$marital == 'single',], aes(x=word, y=n, fill=word))+
+    geom_bar(colour="black", stat="identity") +
+    guides(fill=FALSE)+
+    coord_flip()+
+    ggtitle("single")
+
+p2 <- ggplot(data = mardiff[mardiff$marital == 'married',], aes(x=word, y=n, fill=word)) +
+    geom_bar(colour="black", stat="identity") +
+    guides(fill=FALSE)+
+    coord_flip()+
+  ggtitle("married")
+grid.arrange(p1, p2, ncol = 2)
+
+```
+Same as male VS female group, both single and married group have a good time with their friends. We still find some interesting things. Since married people are not alone, their happiness are also largely from their wife, husband, son and daughter while for single people they have fun with games or other events.
+
+**USA vs India**
+Since data from country group are highly imbanlanced, we also compare America and India which they are of same magnitude.
+
+```{r, warning=FALSE, message=FALSE}
+condiff <-  hm_data %>%
+  unnest_tokens(word, text)%>%
+  group_by(country) %>%
+  count(word, sort = TRUE) %>%
+  mutate(proportion = n / sum(n)) %>%
+  slice(1:20)
+
+p1 <- ggplot(data = condiff[condiff$country == 'USA',], aes(x=word, y=proportion, fill=word))+
+    geom_bar(colour="black", stat="identity") +
+    guides(fill=FALSE)+
+    coord_flip()+
+    ggtitle("USA")
+
+p2 <- ggplot(data = condiff[condiff$country == 'IND',], aes(x=word, y=proportion, fill=word)) +
+    geom_bar(colour="black", stat="identity") +
+    guides(fill=FALSE)+
+    coord_flip()+
+  ggtitle("India")
+grid.arrange(p1, p2, ncol = 2)
+
+```
+Not surprisingly, friends bring these two groups of people lots of happiness. But we still see some core value differences in these two countries. Happiness from son and daughter for American people are equally weighted while it is not for Indian people.
+
+**young vs old**
+
+```{r, warning=FALSE, message=FALSE}
+  agediff <- hm_data %>%
+  filter(!age %in% 'prefer not to say') %>%
+  mutate(age = as.integer(as.character(age))) %>%
+  mutate(age1 = case_when(age <= 30 ~ "y",
+                              age>30 ~ "o"))%>%
+  unnest_tokens(word, text)%>%
+  group_by(age1) %>%
+  count(word, sort = TRUE) %>%
+  mutate(proportion = n / sum(n)) %>%
+  slice(1:20)
+
+p1 <- ggplot(data = agediff[agediff$age1 == 'y',], aes(x=word, y=proportion, fill=word))+
+    geom_bar(colour="black", stat="identity") +
+    guides(fill=FALSE)+
+    coord_flip()+
+    ggtitle("young")
+
+p2 <- ggplot(data = agediff[agediff$age1 == 'o',], aes(x=word, y=proportion, fill=word)) +
+    geom_bar(colour="black", stat="identity") +
+    guides(fill=FALSE)+
+    coord_flip()+
+  ggtitle("old")
+grid.arrange(p1, p2, ncol = 2)
+
+```
+Probably due to the reason that old people are not alone, their happiness are largely from their wife, husband, son and daughter while for young people are from games or other events.
+
+## Part 3: Sentiment Analysis
+
+Although all 100,000 happiness moments have positive attitudes, there may be some differences in their intensity. In this part, we perform sentiment analysis across different groups.
+
+```{r, warning=FALSE, message=FALSE}
+  sent_df<-hm_data %>%
+  mutate(sentiment = get_sentiment(text))
+
+```
+
+**male vs female**
+```{r, warning=FALSE, message=FALSE}
+ p1<-ggplot(data=sent_df[sent_df$gender=='m',], aes(y=sent_df[sent_df$gender=='m',]$sentiment)) + 
+  geom_boxplot(col="red", 
+                 fill="green", 
+                 alpha = .2) + 
+  labs(title="male") +
+  labs(x="male", y="score")
+
+p2<-ggplot(data=sent_df[sent_df$gender=='f',], aes(y=sent_df[sent_df$gender=='f',]$sentiment)) + 
+  geom_boxplot(col="red", 
+                 fill="green", 
+                 alpha = .2) + 
+  labs(title="female") +
+  labs(x="female", y="score")
+grid.arrange(p1, p2, ncol = 2)
+```
+Overall, the experiences are definitely positive. But we still have negative sentiments, which may arise from tragedy. Meanwhile, female have slightly higher sentiment scores than men for most of their experiences.
+
+**young vs old**
+```{r, warning=FALSE, message=FALSE}
+ p1<-ggplot(data=sent_df[sent_df$marital=='single',], aes(y=sent_df[sent_df$marital=='single',]$sentiment)) + 
+  geom_boxplot(col="red", 
+                 fill="green", 
+                 alpha = .2) + 
+  labs(x="single", y="score")
+
+p2<-ggplot(data=sent_df[sent_df$marital=='married',], aes(y=sent_df[sent_df$marital=='married',]$sentiment)) + 
+  geom_boxplot(col="red", 
+                 fill="green", 
+                 alpha = .2) + 
+  labs(x="married", y="score")
+grid.arrange(p1, p2, ncol = 2)
+```
+We still see negative sentiments and young people have slightly higher sentiment scores than old people for most of their experiences.
